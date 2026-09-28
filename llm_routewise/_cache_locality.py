@@ -25,7 +25,6 @@ class _CacheLocalityEvidence:
 
     last_cached_tokens: int
     observed_at: float
-    generation: int
     confidence: float
 
 
@@ -88,14 +87,12 @@ class _CacheLocalityEstimator:
 
         with self._lock:
             existing = self._evidence.get(key)
-            generation = existing.generation + 1 if existing is not None else 1
 
             if cached_tokens > 0:
                 # Positive observation: refresh evidence
                 self._evidence[key] = _CacheLocalityEvidence(
                     last_cached_tokens=cached_tokens,
                     observed_at=now,
-                    generation=generation,
                     confidence=1.0,
                 )
                 self._evidence.move_to_end(key)
@@ -110,7 +107,6 @@ class _CacheLocalityEstimator:
                     self._evidence[key] = _CacheLocalityEvidence(
                         last_cached_tokens=existing.last_cached_tokens,
                         observed_at=now,
-                        generation=generation,
                         confidence=new_confidence,
                     )
                     self._evidence.move_to_end(key)

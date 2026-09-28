@@ -289,10 +289,18 @@ The internal `Decision._estimated_cached_tokens` member is not a supported
 public API. Report actual `cached_tokens` or `cost_usd` whenever possible to
 ensure accurate billing.
 
-The `affinity_key` should represent a stable reusable-prefix or request
-identity (e.g., a conversation ID or hash of the system prompt). It should not
-be raw prompt text or contain sensitive data. Empty or whitespace-only keys
-are rejected.
+The `affinity_key` should represent a stable reusable-prefix or conversation
+identity (for example, a conversation ID or hash of the system prompt). It
+should not be raw prompt text or contain sensitive data. Empty or
+whitespace-only keys are rejected.
+
+!!! warning "Credential identity alone is too coarse"
+
+    If one API credential serves unrelated conversations, using its hash as
+    `affinity_key` makes them share learned cache evidence. Use a
+    conversation- or prefix-specific identity. When the application has
+    independently verified endpoint-specific estimates, pass those estimates
+    directly instead.
 
 #### `Router.observe`
 

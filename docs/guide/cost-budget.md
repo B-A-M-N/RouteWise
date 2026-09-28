@@ -61,6 +61,14 @@ Key properties:
   supplied. Existing callers retain their explicit cached-token estimates for
   calculated billing; learned estimates are used for routing only.
 
+!!! warning "Credential identity is too coarse for prefix locality"
+
+    One API credential may serve unrelated conversations. If its hash is used
+    as `affinity_key`, those conversations share the same learned provider
+    cache evidence. Use a conversation- or prefix-specific identity instead.
+    Applications with independently verified endpoint-specific estimates can
+    continue supplying those estimates directly.
+
 The learned value is incorporated into the decision's effective cached-token
 estimate and affects routing cost. It does not confirm provider usage for
 accounting: when output tokens are known but both `cached_tokens` and `cost_usd`
@@ -76,9 +84,9 @@ RouteWise owns generic observed-reuse evidence: positive, negative, and
 unknown observations; TTL and exponential decay; a learned cached-token
 estimate; routing/cost influence; and caller-estimate precedence. It only
 knows `provider.name` and an opaque `affinity_key`. Applications may maintain
-finer session-, prefix-, endpoint-, or credential-scoped locality models and
-use RouteWise's observations without treating this coarse evidence as
-authoritative cache state.
+finer conversation-, prefix-, or endpoint-scoped locality models and use
+RouteWise's observations without treating this coarse evidence as authoritative
+cache state. A credential hash alone does not distinguish unrelated prompts.
 
 ### Downstream relevance
 
