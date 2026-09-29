@@ -22,17 +22,19 @@
 
 <p align="center">
   <a href="https://pypi.org/project/llm-routewise/"><img alt="PyPI" src="https://img.shields.io/pypi/v/llm-routewise?style=flat-square&amp;label=PyPI&amp;color=A51C30"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml"><img alt="Package CI" src="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml/badge.svg?branch=main"></a>
+  <a href="https://harvardmadsys.github.io/RouteWise/"><img alt="Documentation" src="https://img.shields.io/badge/docs-latest-A51C30?style=flat-square"></a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/actions/workflows/package.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/HarvardMadSys/RouteWise/package.yml?branch=main&amp;style=flat-square&amp;label=CI"></a>
   <a href="https://pypi.org/project/llm-routewise/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/llm-routewise?style=flat-square&amp;color=4B5563"></a>
   <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/pypi/l/llm-routewise?style=flat-square&amp;color=4B5563"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Stars"></a>
-  <a href="https://github.com/HarvardMadSys/RouteWise/forks"><img alt="GitHub Forks" src="https://img.shields.io/github/forks/HarvardMadSys/RouteWise?style=flat&amp;logo=github&amp;label=Forks"></a>
+  <a href="https://github.com/HarvardMadSys/RouteWise/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/HarvardMadSys/RouteWise?style=flat-square&amp;color=4B5563&amp;label=stars"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md">English API</a>
+  <a href="https://harvardmadsys.github.io/RouteWise/">Documentation</a>
   ·
-  <a href="https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md">中文 API</a>
+  <a href="https://harvardmadsys.github.io/RouteWise/reference/api/">English API</a>
+  ·
+  <a href="https://harvardmadsys.github.io/RouteWise/zh/reference/api/">中文 API</a>
 </p>
 
 <p align="center">
@@ -157,14 +159,17 @@ Key properties:
 
 `Router` computes decisions but performs no network I/O and does not read API
 keys. Your application owns provider clients, credentials, and dispatch. Read
-the [English API reference](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md)
-or [中文 API 参考](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md)
+the [English API reference](https://harvardmadsys.github.io/RouteWise/reference/api/)
+or [中文 API 参考](https://harvardmadsys.github.io/RouteWise/zh/reference/api/)
 for the full contract.
 
-For a complete offline example using only the public API, run:
+Two offline examples use only the public API: a single decision, and a full
+request lifecycle showing dispatch, failure reporting, and how outcomes change
+routing. Run them with:
 
 ```bash
 uv run python examples/basic.py
+uv run python examples/simple_router.py
 ```
 
 ## Repository Development
@@ -176,34 +181,29 @@ uv sync --locked
 uv run ruff check .
 uv run pytest -q
 uv run python examples/basic.py
+uv run python examples/simple_router.py
 uv run python -m build --wheel
 uv run python scripts/check_wheel.py dist/*.whl
 ```
 
-## Documentation
-
-### Library Users
-
-- [Python API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.md)
-- [Python API, Chinese](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/reference/api.zh.md)
-
-### Maintainers and Advanced Integrators
-
-- [Core mathematical API](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/CORE_API.md)
-- [Release procedure](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/RELEASING.md)
-- [Documentation site](https://github.com/HarvardMadSys/RouteWise/blob/main/docs/maintainers/DOCS_SITE.md)
-- [Published-package changes](https://github.com/HarvardMadSys/RouteWise/blob/main/CHANGELOG.md)
+Maintainer docs live in
+[docs/maintainers/](https://github.com/HarvardMadSys/RouteWise/tree/main/docs/maintainers).
 
 ## Citation
 
-If you use RouteWise in your research, please cite our paper:
+If you use RouteWise in your research, please cite [our paper](https://doi.org/10.1145/3842654.3848534):
 
 ```bibtex
 @inproceedings{tian2027routewise,
   title     = {{RouteWise}: Latency--Cost Optimization for Multi-Provider LLM Routing},
   author    = {Muxin Tian and Haoran Ni and Yiyan Zhai and Yangsun Park and Juncheng Yang},
-  booktitle = {Proceedings of the 22nd European Conference on Computer Systems (EuroSys '27)},
-  year      = {2027}
+  booktitle = {22nd European Conference on Computer Systems (EuroSys '27), April 19--23, 2027, Rabat, Morocco},
+  year      = {2027},
+  month     = apr,
+  publisher = {Association for Computing Machinery},
+  doi       = {10.1145/3842654.3848534},
+  isbn      = {979-8-4007-2971-3},
+  url       = {https://doi.org/10.1145/3842654.3848534}
 }
 ```
 

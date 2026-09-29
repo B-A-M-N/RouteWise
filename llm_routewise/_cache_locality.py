@@ -86,7 +86,7 @@ class _CacheLocalityEstimator:
         key = (provider, affinity_key)
 
         with self._lock:
-            existing = self._evidence.get(key)
+            existing = self._get_fresh_evidence(key, now)
 
             if cached_tokens > 0:
                 # Positive observation: refresh evidence
@@ -129,16 +129,11 @@ class _CacheLocalityEstimator:
         key = (provider, affinity_key)
 
         with self._lock:
-            ev = self._evidence.get(key)
+            ev = self._get_fresh_evidence(key, now)
             if ev is None:
                 return 0
 
             age = now - ev.observed_at
-            if age > self._ttl_sec:
-                # Lazy expiration
-                del self._evidence[key]
-                return 0
-
             # Confidence decay using exponential half-life
             decayed_confidence = ev.confidence * (0.5 ** (age / self._half_life_sec))
             if decayed_confidence < self._min_confidence:
@@ -175,3 +170,15 @@ class _CacheLocalityEstimator:
         """Evict oldest entries if over capacity. Must be called under lock."""
         while len(self._evidence) > self._max_entries:
             self._evidence.popitem(last=False)
+
+    def _get_fresh_evidence(
+        self,
+        key: tuple[str, str],
+        now: float,
+    ) -> _CacheLocalityEvidence | None:
+        """Return evidence unless its TTL elapsed; must be called under lock."""
+        evidence = self._evidence.get(key)
+        if evidence is not None and now - evidence.observed_at > self._ttl_sec:
+            del self._evidence[key]
+            return None
+        return evidence

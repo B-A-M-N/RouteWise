@@ -11,7 +11,7 @@ from llm_routewise._capacity_controller import (
     _CapacitySnapshot,
     _NoopReservation,
 )
-from llm_routewise.facade import OutcomeError, Provider, Router, ValidationError
+from llm_routewise.facade import OutcomeError, Provider, Router, Tuning, ValidationError
 
 
 class RejectingCapacityController:
@@ -214,6 +214,16 @@ class TestMissConfidenceDecay:
 
 
 class TestRouterCacheLocalityIntegration:
+    def test_tuning_configures_locality_ttl(self) -> None:
+        router = Router(
+            [Provider("a", price_in=1.0, price_out=1.0)],
+            tuning=Tuning(cache_locality_ttl_sec=12.5),
+        )
+
+        assert router._locality_estimator._ttl_sec == 12.5
+        with pytest.raises(ValidationError):
+            Tuning(cache_locality_ttl_sec=0.0)
+
     def test_cold_request_no_affinity_unchanged(self) -> None:
         clock = DeterministicClock()
         router = Router(
