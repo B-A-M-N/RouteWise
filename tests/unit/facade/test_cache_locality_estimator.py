@@ -42,6 +42,17 @@ class TestCacheLocalityEstimator:
         clock.advance(301.0)
         assert est.estimate("a", "prefix_X", 100, clock.now) == 0
 
+    def test_miss_after_ttl_does_not_resurrect_expired_evidence(self) -> None:
+        clock = DeterministicClock()
+        est = _CacheLocalityEstimator(ttl_sec=300.0)
+        est.record("a", "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now)
+
+        clock.advance(300.001)
+        est.record("a", "prefix_X", cached_tokens=0, input_tokens=100, now=clock.now)
+
+        assert est.estimate("a", "prefix_X", 100, clock.now) == 0
+        assert est.evidence_count == 0
+
     def test_estimate_never_exceeds_observed(self) -> None:
         clock = DeterministicClock()
         est = _CacheLocalityEstimator(ttl_sec=300.0)
