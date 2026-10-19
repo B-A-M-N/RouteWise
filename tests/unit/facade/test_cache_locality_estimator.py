@@ -11,9 +11,6 @@ class DeterministicClock:
     def __init__(self, now: float = 100.0) -> None:
         self.now = now
 
-    def __call__(self) -> float:
-        return self.now
-
     def advance(self, seconds: float) -> None:
         self.now += seconds
 
@@ -142,6 +139,10 @@ class TestCacheLocalityEstimator:
             t.join()
 
         assert not errors
+        assert est.evidence_count == 990
+        assert est.estimate("p0", "prefix_1", 100, clock.now) == 1
+        assert est.estimate("p9", "prefix_99", 100, clock.now) == 99
+        assert est.estimate("p0", "prefix_0", 100, clock.now) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +170,59 @@ class TestMissConfidenceDecay:
         assert est_after_miss < est_after_hit, (
             f"Miss should reduce estimate: {est_after_miss} !< {est_after_hit}"
         )
+
+    def test_hit_decays_by_half_at_half_life(self) -> None:
+        """A single hit retains half its estimate after one half-life."""
+        est = _CacheLocalityEstimator(ttl_sec=300.0)
+        est.record("A", "prefix_X", cached_tokens=100, input_tokens=100, now=0.0)
+
+        assert est.estimate("A", "prefix_X", 100, 150.0) == 50
+
+    def test_miss_near_ttl_does_not_extend_positive_evidence(self) -> None:
+        """A miss cannot keep a hit alive past its original evidence TTL."""
+        est = _CacheLocalityEstimator(ttl_sec=300.0)
+        est.record("A", "prefix_X", cached_tokens=100, input_tokens=100, now=0.0)
+        est.record("A", "prefix_X", cached_tokens=0, input_tokens=100, now=299.0)
+
+        assert est.estimate("A", "prefix_X", 100, 301.0) == 0
+        assert est.evidence_count == 0
+
+    def test_miss_never_increases_estimate_at_a_later_time(self) -> None:
+        """A miss penalty cannot make a later estimate exceed the no-miss case."""
+        without_miss = _CacheLocalityEstimator(ttl_sec=300.0)
+        with_miss = _CacheLocalityEstimator(ttl_sec=300.0)
+        for est in (without_miss, with_miss):
+            est.record("A", "prefix_X", cached_tokens=100, input_tokens=100, now=0.0)
+        with_miss.record("A", "prefix_X", cached_tokens=0, input_tokens=100, now=100.0)
+
+        assert with_miss.estimate("A", "prefix_X", 100, 150.0) <= without_miss.estimate(
+            "A", "prefix_X", 100, 150.0
+        )
+
+    def test_repeated_misses_delete_dead_evidence_without_estimate(self) -> None:
+        """Recording misses prunes sub-threshold evidence without a lookup."""
+        est = _CacheLocalityEstimator(ttl_sec=300.0)
+        est.record("A", "prefix_X", cached_tokens=100, input_tokens=100, now=0.0)
+
+        for timestamp in range(1, 5):
+            est.record("A", "prefix_X", cached_tokens=0, input_tokens=100, now=float(timestamp))
+
+        assert est.evidence_count == 0
+
+    def test_dead_miss_evidence_cannot_evict_a_more_recent_hit(self) -> None:
+        """Misses do not refresh LRU priority and dead entries are removed."""
+        est = _CacheLocalityEstimator(ttl_sec=300.0)
+        est._max_entries = 2
+        est.record("A", "old", cached_tokens=50, input_tokens=100, now=0.0)
+        est.record("A", "recent", cached_tokens=60, input_tokens=100, now=1.0)
+
+        for timestamp in range(2, 6):
+            est.record("A", "old", cached_tokens=0, input_tokens=100, now=float(timestamp))
+        est.record("A", "incoming", cached_tokens=70, input_tokens=100, now=6.0)
+
+        assert est.evidence_count == 2
+        assert est.estimate("A", "recent", 100, 6.0) == 58
+        assert est.estimate("A", "incoming", 100, 6.0) == 70
 
     def test_repeated_misses_reduce_preference(self) -> None:
         """Repeated misses should eventually eliminate the preference."""
@@ -202,11 +256,3 @@ class TestMissConfidenceDecay:
         est.record("A", "prefix_X", cached_tokens=100, input_tokens=100, now=clock.now)
         est_after_hit = est.estimate("A", "prefix_X", 100, clock.now)
         assert est_after_hit == 100, f"Hit should restore full estimate, got {est_after_hit}"
-
-    def test_miss_without_prior_evidence_creates_nothing(self) -> None:
-        """A miss without prior evidence should not create evidence."""
-        clock = DeterministicClock()
-        est = _CacheLocalityEstimator(ttl_sec=300.0)
-
-        est.record("A", "prefix_X", cached_tokens=0, input_tokens=100, now=clock.now)
-        assert est.evidence_count == 0
