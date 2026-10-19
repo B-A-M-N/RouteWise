@@ -98,18 +98,21 @@ class _CacheLocalityEstimator:
                 self._evidence.move_to_end(key)
             else:
                 # Negative observation (miss): degrade confidence
-                # First apply time decay from previous observation to now,
-                # then apply the miss penalty
+                # Keep the last confirmed-hit timestamp. estimate() applies
+                # time decay from that timestamp; refreshing it on a miss
+                # would extend stale positive evidence and decay it twice.
                 if existing is not None:
-                    age = now - existing.observed_at
-                    decayed_confidence = existing.confidence * (0.5 ** (age / self._half_life_sec))
-                    new_confidence = decayed_confidence * self._miss_confidence_factor
-                    self._evidence[key] = _CacheLocalityEvidence(
-                        last_cached_tokens=existing.last_cached_tokens,
-                        observed_at=now,
-                        confidence=new_confidence,
-                    )
-                    self._evidence.move_to_end(key)
+                    age = max(0.0, now - existing.observed_at)
+                    new_confidence = existing.confidence * self._miss_confidence_factor
+                    effective_confidence = new_confidence * (0.5 ** (age / self._half_life_sec))
+                    if effective_confidence < self._min_confidence:
+                        del self._evidence[key]
+                    else:
+                        self._evidence[key] = _CacheLocalityEvidence(
+                            last_cached_tokens=existing.last_cached_tokens,
+                            observed_at=existing.observed_at,
+                            confidence=new_confidence,
+                        )
                 # If no existing evidence, a miss creates no evidence
 
             self._enforce_capacity()
