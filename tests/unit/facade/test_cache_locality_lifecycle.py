@@ -655,3 +655,45 @@ class TestHedgeLocality:
         assert router._locality_estimator.estimate("backup", "prefix_X", 100, clock.now) > 0
         clock.advance(20.0)
         assert router._locality_estimator.estimate("backup", "prefix_X", 100, clock.now) == 0
+
+    def test_late_backup_hit_cannot_undo_newer_miss(self) -> None:
+        """A delayed hedge settlement keeps the provider's newer miss penalty."""
+        clock = DeterministicClock()
+        router = Router(
+            [
+                Provider("primary", price_in=1.0, price_out=1.0, price_cached=0.1),
+                Provider("backup", price_in=1.0, price_out=1.0, price_cached=0.1),
+            ],
+            cold_start="require_observations",
+            slo_ms=3000.0,
+            seed=1,
+            clock=clock,
+        )
+        _warm(router, "primary", 100.0, 5)
+        _warm(router, "backup", 200.0, 5)
+        decision = router.route(
+            input_tokens=100, affinity_key="prefix_X", estimated_output_tokens=10
+        )
+        backup = decision.hedge_now(elapsed_ms=2700.0)
+        assert backup is not None
+
+        # The backup completes before usage arrives, so its eventual hit is an
+        # older observation than the miss recorded below.
+        router._locality_estimator.record(
+            backup.provider, "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now
+        )
+        backup.completed(output_tokens=10, cached_tokens=None)
+        decision.cancelled()
+
+        clock.advance(10.0)
+        router._locality_estimator.record(
+            backup.provider, "prefix_X", cached_tokens=0, input_tokens=100, now=clock.now
+        )
+        after_miss = router._locality_estimator._evidence[(backup.provider, "prefix_X")]
+        assert after_miss.confidence == pytest.approx(0.3)
+        assert after_miss.last_event_at == clock.now
+
+        clock.advance(10.0)
+        backup.settle(cached_tokens=80)
+
+        assert router._locality_estimator._evidence[(backup.provider, "prefix_X")] == after_miss
