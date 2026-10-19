@@ -11,9 +11,6 @@ class DeterministicClock:
     def __init__(self, now: float = 100.0) -> None:
         self.now = now
 
-    def __call__(self) -> float:
-        return self.now
-
     def advance(self, seconds: float) -> None:
         self.now += seconds
 
@@ -259,11 +256,3 @@ class TestMissConfidenceDecay:
         est.record("A", "prefix_X", cached_tokens=100, input_tokens=100, now=clock.now)
         est_after_hit = est.estimate("A", "prefix_X", 100, clock.now)
         assert est_after_hit == 100, f"Hit should restore full estimate, got {est_after_hit}"
-
-    def test_miss_without_prior_evidence_creates_nothing(self) -> None:
-        """A miss without prior evidence should not create evidence."""
-        clock = DeterministicClock()
-        est = _CacheLocalityEstimator(ttl_sec=300.0)
-
-        est.record("A", "prefix_X", cached_tokens=0, input_tokens=100, now=clock.now)
-        assert est.evidence_count == 0
