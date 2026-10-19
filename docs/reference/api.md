@@ -235,12 +235,14 @@ router.route(
 optional finite, non-negative point estimate supplied by the caller. When it
 is `None`, RouteWise uses its internal online output-length estimate.
 `estimated_cached_tokens` is optional:
+
 - `None` (omitted): no caller estimate; learned affinity evidence may fill
   estimates when `affinity_key` is supplied; otherwise behaves like zero.
 - scalar (including `0`): explicit caller estimate for every provider; learned
   evidence cannot override it.
 - mapping: explicit entries are authoritative; missing entries may be filled
   from learned affinity evidence when `affinity_key` is supplied.
+
 Values above `input_tokens` are clamped. Unknown mapping keys raise
 `ValidationError`. `alpha` overrides the router default. `exclude` applies
 only to this request, and all names must be known. `affinity_key` is an
@@ -292,7 +294,7 @@ ensure accurate billing.
 The `affinity_key` should represent a stable reusable-prefix or conversation
 identity (for example, a conversation ID or hash of the system prompt). It
 should not be raw prompt text or contain sensitive data. Empty or
-whitespace-only keys are rejected.
+whitespace-only keys, and keys longer than 1024 characters, are rejected.
 
 !!! warning "Credential identity alone is too coarse"
 

@@ -372,6 +372,136 @@ class TestAdversarialEstimateVsActual:
             d1.completed(output_tokens=10, cached_tokens=0)
 
 
+class TestLateLocalitySettlement:
+    def _router(self, clock: DeterministicClock) -> Router:
+        router = Router(
+            [Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2)],
+            cold_start="require_observations",
+            seed=1,
+            clock=clock,
+        )
+        _warm(router, "A")
+        return router
+
+    def test_late_settlement_uses_completion_time_and_still_bills_once(self) -> None:
+        clock = DeterministicClock()
+        router = self._router(clock)
+        decision = router.route(
+            input_tokens=100,
+            estimated_output_tokens=10,
+            affinity_key="prefix_X",
+        )
+        attempt = decision.primary
+        attempt.completed(output_tokens=None, cached_tokens=None)
+        completed_at = attempt._completed_at
+        assert completed_at == clock.now
+
+        clock.advance(290.0)
+        attempt.settle(output_tokens=10, cached_tokens=90, cost_usd=0.00042)
+        evidence = router._locality_estimator._evidence[("A", "prefix_X")]
+        assert evidence.observed_at == completed_at
+        assert router.stats().providers["A"]["actual_spend_usd"] == pytest.approx(0.00042)
+
+        # An identical late billing update is idempotent and cannot double-count.
+        attempt.settle(output_tokens=10, cached_tokens=90, cost_usd=0.00042)
+        assert router.stats().providers["A"]["actual_spend_usd"] == pytest.approx(0.00042)
+
+        # The evidence ages from completion, so it is expired at t=310.
+        clock.advance(20.0)
+        assert router._locality_estimator.estimate("A", "prefix_X", 100, clock.now) == 0
+
+    def test_settlement_within_ttl_keeps_original_observation_age(self) -> None:
+        clock = DeterministicClock()
+        router = self._router(clock)
+        decision = router.route(
+            input_tokens=100,
+            estimated_output_tokens=10,
+            affinity_key="prefix_X",
+        )
+        attempt = decision.primary
+        attempt.completed(output_tokens=None, cached_tokens=None)
+        completed_at = attempt._completed_at
+
+        clock.advance(30.0)
+        attempt.settle(cached_tokens=90)
+
+        evidence = router._locality_estimator._evidence[("A", "prefix_X")]
+        assert evidence.observed_at == completed_at
+        assert router._locality_estimator.estimate("A", "prefix_X", 100, clock.now) == int(
+            90 * (0.5 ** (30.0 / 150.0))
+        )
+
+    def test_expired_settlement_still_bills_without_training_locality(self) -> None:
+        clock = DeterministicClock()
+        router = self._router(clock)
+        decision = router.route(
+            input_tokens=100,
+            estimated_output_tokens=10,
+            affinity_key="prefix_X",
+        )
+        attempt = decision.primary
+        attempt.completed(output_tokens=None, cached_tokens=None)
+
+        clock.advance(301.0)
+        attempt.settle(output_tokens=10, cached_tokens=90, cost_usd=0.00042)
+
+        assert router._locality_estimator.evidence_count == 0
+        assert router.stats().providers["A"]["actual_spend_usd"] == pytest.approx(0.00042)
+
+    def test_newer_hit_is_not_replaced_by_older_settlement(self) -> None:
+        clock = DeterministicClock()
+        router = self._router(clock)
+        older = router.route(
+            input_tokens=100, estimated_output_tokens=10, affinity_key="prefix_X"
+        ).primary
+        older.completed(output_tokens=None, cached_tokens=None)
+
+        clock.advance(10.0)
+        newer = router.route(
+            input_tokens=100, estimated_output_tokens=10, affinity_key="prefix_X"
+        ).primary
+        newer.completed(output_tokens=10, cached_tokens=50)
+
+        clock.advance(10.0)
+        older.settle(cached_tokens=90)
+
+        evidence = router._locality_estimator._evidence[("A", "prefix_X")]
+        assert evidence.last_cached_tokens == 50
+        assert evidence.observed_at == 110.0
+        assert evidence.last_event_at == 110.0
+
+    def test_newer_miss_penalty_survives_older_hit_settlement(self) -> None:
+        clock = DeterministicClock()
+        router = self._router(clock)
+        seed = router.route(
+            input_tokens=100, estimated_output_tokens=10, affinity_key="prefix_X"
+        ).primary
+        seed.completed(output_tokens=10, cached_tokens=90)
+
+        clock.advance(10.0)
+        older = router.route(
+            input_tokens=100, estimated_output_tokens=10, affinity_key="prefix_X"
+        ).primary
+        older.completed(output_tokens=None, cached_tokens=None)
+
+        clock.advance(10.0)
+        newer_miss = router.route(
+            input_tokens=100, estimated_output_tokens=10, affinity_key="prefix_X"
+        ).primary
+        newer_miss.completed(output_tokens=10, cached_tokens=0)
+        evidence_after_miss = router._locality_estimator._evidence[("A", "prefix_X")]
+        assert evidence_after_miss.confidence == pytest.approx(0.3)
+        assert evidence_after_miss.last_event_at == 120.0
+
+        clock.advance(10.0)
+        older.settle(cached_tokens=70)
+
+        evidence_after_late_hit = router._locality_estimator._evidence[("A", "prefix_X")]
+        assert evidence_after_late_hit == evidence_after_miss
+        assert evidence_after_late_hit.last_cached_tokens == 90
+        assert evidence_after_late_hit.observed_at == 100.0
+
+
 # ---------------------------------------------------------------------------
 # Baseline vs Candidate experiment
 # ---------------------------------------------------------------------------
@@ -510,12 +640,18 @@ class TestHedgeLocality:
         assert backup is not None
         backup.completed(output_tokens=10, cached_tokens=None)
         decision.cancelled()
+        completed_at = backup._completed_at
 
         # No evidence yet (cached_tokens=None)
         assert router._locality_estimator.estimate("backup", "prefix_X", 100, clock.now) == 0
 
         # Settle with actual cached_tokens
+        clock.advance(290.0)
         backup.settle(cached_tokens=80)
 
-        # Now evidence should be recorded
+        # The hedge uses its completion time, not its late settlement time.
+        evidence = router._locality_estimator._evidence[("backup", "prefix_X")]
+        assert evidence.observed_at == completed_at
         assert router._locality_estimator.estimate("backup", "prefix_X", 100, clock.now) > 0
+        clock.advance(20.0)
+        assert router._locality_estimator.estimate("backup", "prefix_X", 100, clock.now) == 0

@@ -26,6 +26,7 @@ class _CacheLocalityEvidence:
     last_cached_tokens: int
     observed_at: float
     confidence: float
+    last_event_at: float
 
 
 class _CacheLocalityEstimator:
@@ -51,6 +52,9 @@ class _CacheLocalityEstimator:
         # Ordered by most-recent observation. Refreshing an existing key moves
         # it to the end, so capacity eviction never scans the full store.
         self._evidence: OrderedDict[tuple[str, str], _CacheLocalityEvidence] = OrderedDict()
+        # Keep ordering watermarks separately so a delayed hit cannot restore
+        # evidence after a newer miss deleted the estimate itself.
+        self._last_event_at: OrderedDict[tuple[str, str], float] = OrderedDict()
         self._lock = Lock()
 
     def record(
@@ -86,6 +90,18 @@ class _CacheLocalityEstimator:
         key = (provider, affinity_key)
 
         with self._lock:
+            last_event_at = self._last_event_at.get(key)
+            evidence = self._evidence.get(key)
+            if (last_event_at is not None and now < last_event_at) or (
+                evidence is not None and now < evidence.last_event_at
+            ):
+                return
+
+            self._last_event_at[key] = now
+            self._last_event_at.move_to_end(key)
+            while len(self._last_event_at) > self._max_entries:
+                self._last_event_at.popitem(last=False)
+
             existing = self._get_fresh_evidence(key, now)
 
             if cached_tokens > 0:
@@ -94,6 +110,7 @@ class _CacheLocalityEstimator:
                     last_cached_tokens=cached_tokens,
                     observed_at=now,
                     confidence=1.0,
+                    last_event_at=now,
                 )
                 self._evidence.move_to_end(key)
             else:
@@ -112,6 +129,7 @@ class _CacheLocalityEstimator:
                             last_cached_tokens=existing.last_cached_tokens,
                             observed_at=existing.observed_at,
                             confidence=new_confidence,
+                            last_event_at=now,
                         )
                 # If no existing evidence, a miss creates no evidence
 
@@ -168,6 +186,11 @@ class _CacheLocalityEstimator:
         """Current number of evidence entries."""
         with self._lock:
             return len(self._evidence)
+
+    @property
+    def ttl_sec(self) -> float:
+        """Maximum age of a positive observation."""
+        return self._ttl_sec
 
     def _enforce_capacity(self) -> None:
         """Evict oldest entries if over capacity. Must be called under lock."""

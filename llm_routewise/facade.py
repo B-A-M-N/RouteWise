@@ -370,23 +370,19 @@ class Router:
             now = self._now_locked()
             self._expire_leases_locked(now)
             predicted_output = (
-                self._estimator.predict(input_count)
-                if output_estimate is None
-                else output_estimate
+                self._estimator.predict(input_count) if output_estimate is None else output_estimate
             )
             # Derive effective cached-token estimates: caller-supplied wins,
             # learned evidence fills gaps where caller is silent.
             effective_cached = dict(cached)
             if affinity_key is not None:
-                now_snapshot = now
                 for name in self._providers:
                     if name not in caller_provided:
                         learned = self._locality_estimator.estimate(
-                            name, affinity_key, input_count, now_snapshot
+                            name, affinity_key, input_count, now
                         )
                         if learned > 0:
-                            effective_cached[name] = min(learned, input_count)
-                    # Caller explicitly provided estimate; bypass learned evidence
+                            effective_cached[name] = learned
             costs = {
                 name: self._price(
                     self._providers[name],
@@ -940,7 +936,7 @@ class Router:
             self._estimator.update(attempt._input_tokens, attempt._output_tokens)
             attempt._estimator_trained = True
 
-    def _maybe_record_locality_locked(self, attempt: Attempt, now: float | None = None) -> None:
+    def _maybe_record_locality_locked(self, attempt: Attempt, now: float) -> None:
         """Record cache-locality evidence from completed attempts.
 
         Positive cached_tokens values produce evidence of reusable prefix
@@ -955,17 +951,23 @@ class Router:
             return
         if attempt._locality_trained:
             return
+        completed_at = attempt._completed_at
+        if completed_at is None:
+            return
         decision = attempt._decision
         if decision._affinity_key is None:
             return
-        if now is None:
-            now = self._now_locked()
+        if now - completed_at > self._locality_estimator.ttl_sec:
+            # This observation can never become fresh again. Billing settlement
+            # remains independent and continues below the locality path.
+            attempt._locality_trained = True
+            return
         self._locality_estimator.record(
             provider=attempt.provider,
             affinity_key=decision._affinity_key,
             cached_tokens=attempt._cached_tokens,
             input_tokens=attempt._input_tokens,
-            now=now,
+            now=completed_at,
         )
         attempt._locality_trained = True
 
@@ -1343,6 +1345,7 @@ class Attempt:
         self._price_snapshot = router._providers[provider]
         self._state = "pending"
         self._first_token_ms: float | None = None
+        self._completed_at: float | None = None
         self._terminal_signature: tuple[object, ...] | None = None
         self._output_tokens: int | None = None
         self._cached_tokens: int | None = None
@@ -1445,13 +1448,10 @@ class Attempt:
                 cached_tokens=cached,
                 cost_usd=cost,
             )
-            now = (
-                self._router._now_locked()
-                if self._first_token_ms is None and latency is not None
-                else None
-            )
+            completed_at = self._router._now_locked()
             self._apply_billing_fields_locked(output, cached, cost)
             self._state = "completed"
+            self._completed_at = completed_at
             self._terminal_signature = signature
             if (
                 not self._decision._hedge_slot_used
@@ -1462,18 +1462,17 @@ class Attempt:
             self._apply_adoption_locked(adopted)
             if latency is not None and self._first_token_ms is None:
                 self._first_token_ms = latency
-                assert now is not None
                 self._router._record_success_locked(
                     self.provider,
                     latency,
-                    now,
+                    completed_at,
                     lease_attempt_id=self._attempt_id,
                 )
             self._reservation.release()
             self._router._settle_attempt_locked(self, target=billing_target)
             self._router._maybe_count_unsettled_locked(self)
             self._router._maybe_train_estimator_locked(self)
-            self._router._maybe_record_locality_locked(self, now=now)
+            self._router._maybe_record_locality_locked(self, now=completed_at)
             self._decision._hedge_slot_closed = True
             self._router._refresh_decision_resolution_locked(self._decision)
 
@@ -1556,11 +1555,12 @@ class Attempt:
                 cached_tokens=cached,
                 cost_usd=cost,
             )
+            settled_at = self._router._now_locked()
             self._apply_billing_fields_locked(output, cached, cost)
             self._router._settle_attempt_locked(self, target=billing_target)
             self._router._maybe_count_unsettled_locked(self)
             self._router._maybe_train_estimator_locked(self)
-            self._router._maybe_record_locality_locked(self, now=self._router._now_locked())
+            self._router._maybe_record_locality_locked(self, now=settled_at)
 
     def _validate_billing_fields_locked(
         self,
