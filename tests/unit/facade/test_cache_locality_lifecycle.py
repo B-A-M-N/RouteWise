@@ -150,6 +150,61 @@ class TestAdversarialEstimateVsActual:
             f"Evidence should reflect actual 30, not prediction 90. Got {evidence}"
         )
 
+    def test_near_ttl_cache_miss_cannot_improve_provider_preference(self) -> None:
+        """A miss cannot revive a provider's expired routing discount."""
+
+        def make_router() -> tuple[DeterministicClock, Router]:
+            clock = DeterministicClock(now=0.0)
+            router = Router(
+                [
+                    Provider("A", price_in=2.0, price_out=1.0, price_cached=0.2),
+                    Provider("B", price_in=1.99, price_out=1.0),
+                ],
+                cold_start="require_observations",
+                seed=1,
+                clock=clock,
+            )
+            _warm(router, "A", 100.0, 5)
+            _warm(router, "B", 100.0, 5)
+            router._locality_estimator.record(
+                "A", "prefix_X", cached_tokens=90, input_tokens=100, now=clock.now
+            )
+            return clock, router
+
+        miss_clock, with_miss = make_router()
+        baseline_clock, without_miss = make_router()
+
+        # Force an A dispatch shortly before the evidence TTL expires, then
+        # feed the provider's authoritative cache miss back through settlement.
+        miss_clock.advance(299.0)
+        miss_attempt = with_miss.route(
+            input_tokens=100,
+            estimated_output_tokens=10,
+            estimated_cached_tokens={"A": 90, "B": 0},
+            alpha=0.0,
+            affinity_key="prefix_X",
+        )
+        assert miss_attempt.provider == "A"
+        miss_attempt.completed(output_tokens=10, cached_tokens=0)
+
+        miss_clock.advance(2.0)
+        baseline_clock.advance(301.0)
+        selected_after_miss = with_miss.route(
+            input_tokens=100,
+            estimated_output_tokens=10,
+            alpha=0.0,
+            affinity_key="prefix_X",
+        )
+        selected_without_miss = without_miss.route(
+            input_tokens=100,
+            estimated_output_tokens=10,
+            alpha=0.0,
+            affinity_key="prefix_X",
+        )
+
+        assert selected_after_miss._estimated_cached_tokens["A"] == 0
+        assert selected_after_miss.provider == selected_without_miss.provider == "B"
+
     def test_caller_estimate_affects_pricing_not_observations(self) -> None:
         """Call-time estimated_cached_tokens=100 affects pricing;
         actual cached_tokens=20 affects future evidence."""
