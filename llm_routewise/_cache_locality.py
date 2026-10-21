@@ -67,6 +67,12 @@ class _CacheLocalityEstimator:
     ) -> None:
         """Record a cache-locality observation.
 
+        ``now`` is when the cache was used, not when the caller reports it: a
+        ``cached_tokens`` value that arrives late through ``settle(...)`` passes
+        the completion time. An observation older than the newest one already
+        recorded for the same provider and affinity key is dropped, so a
+        delayed hit cannot undo a newer miss.
+
         ``cached_tokens`` is the authoritative observed cache-reuse count
         reported by the provider for this completed request:
 

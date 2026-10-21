@@ -266,7 +266,12 @@ When `affinity_key` is supplied, RouteWise learns destination-local cache
 evidence from actual completion observations. On `decision.completed(...)` with
 positive `cached_tokens`, RouteWise records evidence associating the affinity
 identity with the selected provider. Subsequent requests with the same
-`affinity_key` incorporate this learned evidence into routing.
+`affinity_key` incorporate this learned evidence into routing. Evidence is
+dated at completion: `cached_tokens` reported later through `settle(...)` ages
+from the completion time, and is used for billing but not for learning if it
+arrives more than `cache_locality_ttl_sec` after completion. An observation
+older than the newest one already recorded for the same provider and
+`affinity_key` is ignored.
 
 Key properties:
 

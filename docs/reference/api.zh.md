@@ -231,6 +231,9 @@ attempt 完成时，应报告真实的 `output_tokens`，或用显式 `cost_usd`
 提供 `affinity_key` 时，RouteWise 从实际完成观测中学习目的地局部缓存证据。
 `decision.completed(...)` 报告正数 `cached_tokens` 时，RouteWise 记录将 affinity
 身份与选中 provider 关联的证据。后续相同 `affinity_key` 的请求会将学习到的证据纳入路由。
+证据以完成时间记账：稍后通过 `settle(...)` 报告的 `cached_tokens` 从完成时刻起计算年龄；
+若在完成之后超过 `cache_locality_ttl_sec` 才到达，则只用于计费，不用于学习。比同一
+provider 与 `affinity_key` 已记录的最新观测更旧的观测会被忽略。
 
 关键特性：
 
